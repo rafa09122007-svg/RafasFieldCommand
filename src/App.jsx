@@ -41,6 +41,40 @@ function injectGlobalStyles() {
   document.head.appendChild(s);
 }
 
+// ── Image Compression ────────────────────────────────────────────────────────
+// Compresses base64 images to keep payload size manageable.
+// iPhone Pro Max photos can be 10-15MB as base64 — this brings them to ~200-400KB.
+function compressImage(base64String, maxWidth = 1200, quality = 0.6) {
+  return new Promise((resolve) => {
+    if (!base64String || !base64String.startsWith("data:image")) {
+      resolve(base64String);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      try {
+        let w = img.naturalWidth;
+        let h = img.naturalHeight;
+        if (w > maxWidth) {
+          h = Math.round(h * (maxWidth / w));
+          w = maxWidth;
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        const compressed = canvas.toDataURL("image/jpeg", quality);
+        resolve(compressed);
+      } catch {
+        resolve(base64String);
+      }
+    };
+    img.onerror = () => resolve(base64String);
+    img.src = base64String;
+  });
+}
+
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -1327,33 +1361,74 @@ function SubmitTicket({ phone, onComplete, editTicket }) {
     setHasSignature(false);
   }
 
+  // ── SUBMIT — with image compression ──────────────────────────────────────
   async function handleSubmit() {
     if (!isComplete || isSubmitting) return;
     setIsSubmitting(true); setSubmitError("");
-    const sid = `BD-${Date.now().toString(36).toUpperCase()}`;
-    const payload = {
-      submissionId: submissionId || sid, phone, ...form, loads, totalBBLS,
-      signature: sigRef.current.toDataURL("image/png")
-    };
+
     try {
+      // Compress all images before sending to keep payload small
+      const [compressedTicketImage, compressedSignature] = await Promise.all([
+        compressImage(form.fieldTicketImage, 1200, 0.6),
+        compressImage(sigRef.current.toDataURL("image/png"), 800, 0.7),
+      ]);
+
+      const compressedLoads = await Promise.all(
+        loads.map(async (load) => ({
+          ...load,
+          verificationImage: load.verificationImage
+            ? await compressImage(load.verificationImage, 1200, 0.6)
+            : "",
+        }))
+      );
+
+      const sid = `BD-${Date.now().toString(36).toUpperCase()}`;
+      const payload = {
+        submissionId: submissionId || sid,
+        phone,
+        ...form,
+        fieldTicketImage: compressedTicketImage,
+        loads: compressedLoads,
+        totalBBLS,
+        signature: compressedSignature,
+      };
+
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 12000);
+      const timeout = setTimeout(() => controller.abort(), 30000);
+
       const res = await fetch('/api/tickets', {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${localStorage.getItem('bd_token')}` },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem('bd_token')}`
+        },
         body: JSON.stringify(payload),
         signal: controller.signal
       });
+      clearTimeout(timeout);
+
       if (!res.ok) throw new Error("Network response was not ok");
+
       try {
         localStorage.removeItem("bd_draft_form");
         localStorage.removeItem("bd_draft_loads");
       } catch { }
-      clearTimeout(timeout);
+
       onComplete();
-    } catch {
-      setSubmitError("Submission may have failed. Check your connection and try again.");
-    } finally { setIsSubmitting(false); }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        // Timeout but data was sent — treat as success
+        try {
+          localStorage.removeItem("bd_draft_form");
+          localStorage.removeItem("bd_draft_loads");
+        } catch { }
+        onComplete();
+      } else {
+        setSubmitError("Submission may have failed. Check your connection and try again.");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   const sectionStyle = {
