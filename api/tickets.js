@@ -1,5 +1,5 @@
 export default async function handler(req, res) {
-    const API_URL = process.env.GOOGLE_SCRIPT_URL || "https://script.google.com/macros/s/AKfycbwDJZilqySP8zZBHetfQyd-xloh3dz_eKbpwwkLiKohqeQDIRPM8L_H6AjtTU7CSYaT/exec";
+    const API_URL = process.env.GOOGLE_SCRIPT_URL || "https://script.google.com/macros/s/AKfycbz4FfwBoS-YwiVsy9HwCuvF8N2qoTmfbWv25-yHjMvm2Ikoi9KBP-rkOvXYMgiXOu7r/exec";
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return res.status(401).json({ error: 'Unauthorized' });
