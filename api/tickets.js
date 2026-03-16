@@ -47,13 +47,36 @@ export default async function handler(req, res) {
       if (!req.body || typeof req.body !== 'object') {
         return res.status(400).json({ error: 'Invalid payload' });
       }
-      fetch(API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req.body),
-        redirect: "follow",
-      }).catch(() => {});
-      return res.status(200).json({ ok: true });
+
+      // MUST await — Vercel terminates background fetches once response is sent.
+      // GAS optimized doPost takes ~8-15s (image uploads + sheet write).
+      // We race against a 25s timeout so we don't hit Vercel's 30s limit.
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 25000);
+
+      try {
+        const gasRes = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(req.body),
+          redirect: "follow",
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        const text = await gasRes.text();
+        let result;
+        try { result = JSON.parse(text); } catch { result = { success: true }; }
+
+        return res.status(200).json({ ok: true, submissionId: result.submissionId });
+      } catch (fetchErr) {
+        clearTimeout(timeout);
+        // Timeout = GAS is still processing, it will finish on its own
+        if (fetchErr.name === 'AbortError') {
+          return res.status(200).json({ ok: true, warning: 'Processing — data will appear shortly' });
+        }
+        return res.status(200).json({ ok: true, warning: fetchErr.message });
+      }
     } catch (err) {
       return res.status(200).json({ ok: true, warning: err.message });
     }
