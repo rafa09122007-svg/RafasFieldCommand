@@ -2,7 +2,7 @@
 import React from "react";
 
 export const API_URL =
-  "https://script.google.com/macros/s/AKfycbwDJZilqySP8zZBHetfQyd-xloh3dz_eKbpwwkLiKohqeQDIRPM8L_H6AjtTU7CSYaT/exec";
+  "https://script.google.com/macros/s/AKfycbz4FfwBoS-YwiVsy9HwCuvF8N2qoTmfbWv25-yHjMvm2Ikoi9KBP-rkOvXYMgiXOu7r/exec";
 
 export const T = {
   gold:    "#D4AF37",
